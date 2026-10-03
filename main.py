@@ -268,9 +268,12 @@ def register_attendee(payload: RegistrationCreate):
     # Trigger Automated Arkesel Confirmation SMS
     if payload.phone:
         sms_text = (
-            f"Dear {display_name}, your registration for RLR Encounter Conference 2026 is confirmed! "
-            f"Pass ID: {reg_id}. Venue: Accra Auditorium & Online. Nov 6-8, 2026. "
-            f"Roar Ladies Roar Ministry - Ladies on Fire for Christ!"
+            f"Dear {display_name}, your registration for Roar Ladies Encounter Conference 2026 is confirmed! "
+            f"Theme: THE GARMENT OF PRAYER. "
+            f"Pass ID: {reg_id}. "
+            f"Date: Sat 17th Oct, 8AM. "
+            f"Venue: Overcomers Nation Church (Tesano). "
+            f"Join Group: https://chat.whatsapp.com/LBl5RWnbfmtEzpv0KahMbO?mode=gi_t"
         )
         send_arkesel_sms([payload.phone], sms_text)
 
