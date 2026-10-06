@@ -206,6 +206,15 @@ def health():
     }
 
 
+def format_display_name(title: Optional[str], full_name: str) -> str:
+    t = (title or '').strip()
+    fn = (full_name or '').strip()
+    if not t:
+        return fn
+    if t in ['Mr', 'Mrs', 'Ms', 'Dr', 'Rev', 'Sis']:
+        return f"{t}. {fn}"
+    return f"{t} {fn}"
+
 # ── Attendee Pre-Registration ─────────────────────────────────────────────────
 @app.post("/api/register", status_code=status.HTTP_201_CREATED)
 def register_attendee(payload: RegistrationCreate):
@@ -213,7 +222,7 @@ def register_attendee(payload: RegistrationCreate):
     code = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
     reg_id = f"RLR-{code}-2026"
     now_iso = datetime.utcnow().isoformat()
-    display_name = f"{payload.title}. {payload.fullName.strip()}" if payload.title else payload.fullName.strip()
+    display_name = format_display_name(payload.title, payload.fullName)
 
     conn = get_db_connection()
     if conn:
@@ -325,7 +334,7 @@ def list_registrations():
                 for row in rows:
                     title = row.get("title") or ""
                     fname = row.get("fullName") or ""
-                    disp = f"{title}. {fname}" if title else fname
+                    disp = format_display_name(title, fname)
                     row["displayName"] = disp
                     if row.get("registeredAt"):
                         row["registeredAt"] = row["registeredAt"].isoformat()
@@ -348,7 +357,7 @@ def list_registrations():
                 "id": reg_id,
                 "title": title,
                 "fullName": fname,
-                "displayName": f"{title}. {fname}" if title else fname,
+                "displayName": format_display_name(title, fname),
                 "phone": reg.get("phone", ""),
                 "email": reg.get("email", ""),
                 "age": reg.get("age", ""),
