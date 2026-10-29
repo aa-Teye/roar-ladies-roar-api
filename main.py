@@ -38,6 +38,7 @@ ARKESEL_SENDER_ID = os.getenv("ARKESEL_SENDER_ID", "RLRMinistry")
 # In-memory store fallback when DATABASE_URL is not yet set
 _memory_registrations: Dict[str, Dict[str, Any]] = {}
 _memory_attendance: Dict[str, Dict[str, Any]] = {}
+_memory_joiners: Dict[str, Dict[str, Any]] = {}
 
 
 # ── Arkesel SMS Helper ────────────────────────────────────────────────────────
@@ -141,6 +142,19 @@ def init_db():
                     marked_by VARCHAR(64) DEFAULT 'usher',
                     UNIQUE(registration_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS new_joiners (
+                    id VARCHAR(64) PRIMARY KEY,
+                    full_name VARCHAR(255) NOT NULL,
+                    age_range VARCHAR(64),
+                    whatsapp_number VARCHAR(64) NOT NULL,
+                    meeting_frequency VARCHAR(255),
+                    preferred_time VARCHAR(255),
+                    google_meet_regularity VARCHAR(128),
+                    prayer_request TEXT,
+                    expectations TEXT,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                );
             """)
             conn.commit()
             print("[DB Success] Neon PostgreSQL tables verified/initialized.")
@@ -169,6 +183,21 @@ class RegistrationCreate(BaseModel):
     referral: Optional[str] = ""
     invitedBy: Optional[str] = ""
     prayerRequest: Optional[str] = ""
+
+
+class BatchRegistrationCreate(BaseModel):
+    attendees: List[RegistrationCreate]
+
+
+class JoinerCreate(BaseModel):
+    fullName: str
+    ageRange: Optional[str] = ""
+    whatsappNumber: str
+    meetingFrequency: Optional[str] = ""
+    preferredTime: Optional[str] = ""
+    googleMeetRegularity: Optional[str] = ""
+    prayerRequest: Optional[str] = ""
+    expectations: Optional[str] = ""
 
 
 class SingleSMSRequest(BaseModel):
@@ -513,6 +542,223 @@ def broadcast_sms(payload: BroadcastSMSRequest):
         "recipientsCount": len(recipients),
         "arkeselResponse": sms_res,
     }
+
+
+# ── Join Ministry / WhatsApp Platform ─────────────────────────────────────────
+@app.post("/api/join", status_code=status.HTTP_201_CREATED)
+def join_ministry(payload: JoinerCreate):
+    code = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
+    joiner_id = f"RLR-JOIN-{code}"
+    now_iso = datetime.utcnow().isoformat()
+    clean_name = payload.fullName.strip()
+    clean_phone = payload.whatsappNumber.strip()
+
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO new_joiners (
+                        id, full_name, age_range, whatsapp_number, meeting_frequency,
+                        preferred_time, google_meet_regularity, prayer_request,
+                        expectations, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    joiner_id,
+                    clean_name,
+                    payload.ageRange,
+                    clean_phone,
+                    payload.meetingFrequency,
+                    payload.preferredTime,
+                    payload.googleMeetRegularity,
+                    payload.prayerRequest,
+                    payload.expectations,
+                    datetime.utcnow()
+                ))
+                conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise HTTPException(status_code=500, detail=f"Database insertion failed: {e}")
+        finally:
+            conn.close()
+    else:
+        _memory_joiners[joiner_id] = {
+            "id": joiner_id,
+            "full_name": clean_name,
+            "age_range": payload.ageRange,
+            "whatsapp_number": clean_phone,
+            "meeting_frequency": payload.meetingFrequency,
+            "preferred_time": payload.preferredTime,
+            "google_meet_regularity": payload.googleMeetRegularity,
+            "prayer_request": payload.prayerRequest,
+            "expectations": payload.expectations,
+            "created_at": now_iso
+        }
+
+    # Welcome SMS via Arkesel if phone provided
+    if clean_phone:
+        sms_text = f"Welcome {clean_name} to Roar Ladies Ministry! We are blessed to have you. Tap here to join our official WhatsApp platform: https://chat.whatsapp.com/LBl5RWnbfmtEzpv0KahMbO"
+        send_arkesel_sms([clean_phone], sms_text)
+
+    return {
+        "id": joiner_id,
+        "fullName": clean_name,
+        "ageRange": payload.ageRange,
+        "whatsappNumber": clean_phone,
+        "meetingFrequency": payload.meetingFrequency,
+        "preferredTime": payload.preferredTime,
+        "googleMeetRegularity": payload.googleMeetRegularity,
+        "prayerRequest": payload.prayerRequest,
+        "expectations": payload.expectations,
+        "createdAt": now_iso,
+        "whatsappGroupUrl": "https://chat.whatsapp.com/LBl5RWnbfmtEzpv0KahMbO?mode=gi_t"
+    }
+
+
+@app.get("/api/joiners")
+def list_joiners():
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT 
+                        id,
+                        full_name AS "fullName",
+                        age_range AS "ageRange",
+                        whatsapp_number AS "whatsappNumber",
+                        meeting_frequency AS "meetingFrequency",
+                        preferred_time AS "preferredTime",
+                        google_meet_regularity AS "googleMeetRegularity",
+                        prayer_request AS "prayerRequest",
+                        expectations,
+                        created_at AS "createdAt"
+                    FROM new_joiners
+                    ORDER BY created_at DESC
+                """)
+                rows = cur.fetchall()
+                for row in rows:
+                    if row.get("createdAt"):
+                        row["createdAt"] = row["createdAt"].isoformat()
+                return rows
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Query failed: {e}")
+        finally:
+            conn.close()
+    else:
+        return [
+            {
+                "id": v["id"],
+                "fullName": v["full_name"],
+                "ageRange": v.get("age_range", ""),
+                "whatsappNumber": v.get("whatsapp_number", ""),
+                "meetingFrequency": v.get("meeting_frequency", ""),
+                "preferredTime": v.get("preferred_time", ""),
+                "googleMeetRegularity": v.get("google_meet_regularity", ""),
+                "prayerRequest": v.get("prayer_request", ""),
+                "expectations": v.get("expectations", ""),
+                "createdAt": v.get("created_at", "")
+            }
+            for v in reversed(list(_memory_joiners.values()))
+        ]
+
+
+@app.delete("/api/joiners/{joiner_id}")
+def delete_joiner(joiner_id: str):
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM new_joiners WHERE id = %s", (joiner_id,))
+                conn.commit()
+                return {"success": True, "id": joiner_id}
+        except Exception as e:
+            conn.rollback()
+            raise HTTPException(status_code=500, detail=f"Delete failed: {e}")
+        finally:
+            conn.close()
+    else:
+        _memory_joiners.pop(joiner_id, None)
+        return {"success": True, "id": joiner_id}
+
+
+# ── Batch Registrations Import ────────────────────────────────────────────────
+@app.post("/api/registrations/batch", status_code=status.HTTP_201_CREATED)
+def batch_register_attendees(payload: BatchRegistrationCreate):
+    created = []
+    now_iso = datetime.utcnow().isoformat()
+    conn = get_db_connection()
+
+    for item in payload.attendees:
+        code = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
+        reg_id = f"RLR-{code}-2026"
+        display_name = format_display_name(item.title, item.fullName)
+
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO registrations (
+                            id, title, full_name, phone, email, age, member_status,
+                            first_timer, attendance_mode, location, referral, invited_by,
+                            prayer_request, registered_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        reg_id,
+                        item.title,
+                        item.fullName.strip(),
+                        item.phone.strip(),
+                        item.email.strip() if item.email else None,
+                        item.age,
+                        item.memberStatus,
+                        item.firstTimer,
+                        item.attendanceMode or "Yes, in person",
+                        (item.location or "Accra").strip(),
+                        item.referral,
+                        item.invitedBy,
+                        item.prayerRequest,
+                        datetime.utcnow(),
+                    ))
+                    conn.commit()
+            except Exception as e:
+                conn.rollback()
+                print(f"[Batch Import Error] {e}")
+                continue
+        else:
+            _memory_registrations[reg_id] = {
+                "id": reg_id,
+                "title": item.title,
+                "full_name": item.fullName.strip(),
+                "phone": item.phone.strip(),
+                "email": item.email.strip() if item.email else "",
+                "age": item.age,
+                "member_status": item.memberStatus,
+                "first_timer": item.firstTimer,
+                "attendance_mode": item.attendanceMode,
+                "location": item.location.strip() if item.location else "Accra",
+                "referral": item.referral,
+                "invited_by": item.invitedBy,
+                "prayer_request": item.prayerRequest,
+                "registered_at": now_iso,
+            }
+
+        created.append({
+            "id": reg_id,
+            "regId": reg_id,
+            "title": item.title,
+            "fullName": item.fullName.strip(),
+            "displayName": display_name,
+            "phone": item.phone.strip(),
+            "email": item.email.strip() if item.email else "",
+            "location": item.location,
+            "registeredAt": now_iso,
+            "checkedIn": False
+        })
+
+    if conn:
+        conn.close()
+
+    return {"success": True, "count": len(created), "created": created}
 
 
 if __name__ == "__main__":
