@@ -303,10 +303,10 @@ def register_attendee(payload: RegistrationCreate):
             "registered_at": now_iso,
         }
 
-    # Trigger Automated Arkesel Confirmation SMS (1 credit)
-    if payload.phone:
-        sms_text = f"Dear {display_name}, thank you for registering for Roar Ladies Conf 2026! Join our WhatsApp group: https://chat.whatsapp.com/LBl5RWnbfmtEzpv0KahMbO"
-        send_arkesel_sms([payload.phone], sms_text)
+    # Automated Confirmation SMS disabled (conference is over, prevents wasting SMS tokens)
+    # if payload.phone:
+    #     sms_text = f"Dear {display_name}, thank you for registering for Roar Ladies Conf 2026! Join our WhatsApp group: https://chat.whatsapp.com/L2QaWsQsSN6DIi1RGn3sLJ"
+    #     send_arkesel_sms([payload.phone], sms_text)
 
     return {
         "id": reg_id,
@@ -595,10 +595,10 @@ def join_ministry(payload: JoinerCreate):
             "created_at": now_iso
         }
 
-    # Welcome SMS via Arkesel if phone provided
-    if clean_phone:
-        sms_text = f"Welcome {clean_name} to Roar Ladies Ministry! We are blessed to have you. Tap here to join our official WhatsApp platform: https://chat.whatsapp.com/LBl5RWnbfmtEzpv0KahMbO"
-        send_arkesel_sms([clean_phone], sms_text)
+    # Automated Welcome SMS disabled to save SMS tokens (users join group directly via link/button)
+    # if clean_phone:
+    #     sms_text = f"Welcome {clean_name} to Roar Ladies Ministry! We are blessed to have you. Tap here to join our official WhatsApp platform: https://chat.whatsapp.com/L2QaWsQsSN6DIi1RGn3sLJ"
+    #     send_arkesel_sms([clean_phone], sms_text)
 
     return {
         "id": joiner_id,
@@ -611,7 +611,7 @@ def join_ministry(payload: JoinerCreate):
         "prayerRequest": payload.prayerRequest,
         "expectations": payload.expectations,
         "createdAt": now_iso,
-        "whatsappGroupUrl": "https://chat.whatsapp.com/LBl5RWnbfmtEzpv0KahMbO?mode=gi_t"
+        "whatsappGroupUrl": "https://chat.whatsapp.com/L2QaWsQsSN6DIi1RGn3sLJ?mode=gi_t"
     }
 
 
